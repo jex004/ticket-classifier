@@ -1,0 +1,10 @@
+# requirements.txt
+pandas
+langdetect
+sentence-transformers
+scikit-learn
+matplotlib
+seaborn
+joblib
+spacy==3.5.0
+streamlit
