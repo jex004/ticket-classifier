@@ -1,11 +1,10 @@
-# app.py (Deep Learning + NER Version)
+# app.py (Deep Learning + NER + Proba Score Version)
 
 import streamlit as st
 import joblib
 import os
 import numpy as np
 from sentence_transformers import SentenceTransformer
-# --- NEW: Import spaCy and Displacy ---
 import spacy
 from spacy import displacy
 
@@ -13,46 +12,36 @@ from spacy import displacy
 st.set_page_config(
     page_title="Smart Ticket Assistant",
     page_icon="💡",
-    layout="wide" # Use wide layout for better display
+    layout="wide"
 )
 
-# --- Model and Artifact Loading ---
+# --- Model Loading ---
 MODEL_DIR = 'models'
 CLASSIFIER_PATH = os.path.join(MODEL_DIR, 'ticket_classifier_deep.joblib')
-NER_MODEL_PATH = os.path.join(MODEL_DIR, 'ner_model') # Path to our custom spaCy model
+NER_MODEL_PATH = os.path.join(MODEL_DIR, 'ner_model')
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-
 
 @st.cache_resource
 def load_models():
-    """Loads all models: sentence transformer, classifier, and NER."""
-    # Check if all required model paths exist
-    if not os.path.exists(CLASSIFIER_PATH) or not os.path.exists(NER_MODEL_PATH):
+    if not all([os.path.exists(p) for p in [CLASSIFIER_PATH, NER_MODEL_PATH]]):
         return None, None, None, None
 
-    # Load the powerful sentence embedding model
     embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-    
-    # Load our trained logistic regression classifier
     classifier_model = joblib.load(CLASSIFIER_PATH)
-    
-    # Load our custom trained spaCy NER model
     ner_model = spacy.load(NER_MODEL_PATH)
-    
     class_names = classifier_model.classes_
     
     return embedding_model, classifier_model, ner_model, class_names
 
-# Load all models
 embedding_model, classifier, ner_model, class_names = load_models()
 
-# --- Application UI ---
-st.title("💡 Smart IT Ticket Assistant")
+# --- UI ---
+st.title("💡 Smart Ticket Assistant")
 st.markdown(
-    "This tool uses two AI models: one to **classify the ticket category** and another to **extract key entities** like software and hardware."
+    "This tool uses two AI models: one to **classify the ticket category** and another to **extract key entities**."
 )
 
-if embedding_model is None or classifier is None or ner_model is None:
+if embedding_model is None:
     st.error(
         "**Models not found!** Please run the training scripts first.\n\n"
         "1. Run: `python train_and_evaluate.py`\n"
@@ -71,47 +60,46 @@ else:
         else:
             st.markdown("---")
             st.subheader("Analysis Results")
-
-            # --- Create two columns for a cleaner layout ---
             col1, col2 = st.columns(2)
 
-            # --- Column 1: Classification ---
+            # --- Column 1: Classification with Probability ---
             with col1:
                 st.markdown("#### 1. Ticket Category")
-                # 1. Create embedding
                 input_embedding = embedding_model.encode([user_input])
-                # 2. Get decision scores
-                scores = classifier.decision_function(input_embedding)[0]
-                max_score = scores.max()
-                CONFIDENCE_THRESHOLD = 0.0
+                
+                # --- CHANGE: Use predict_proba instead of decision_function ---
+                # This returns a list of probabilities for each class, e.g., [[0.1, 0.8, 0.1]]
+                probabilities = classifier.predict_proba(input_embedding)[0]
+                
+                # Find the highest probability
+                max_proba = probabilities.max()
+                
+                # --- CHANGE: Adjust the threshold to work with probabilities (0.0 to 1.0) ---
+                # A threshold of 0.5 means the model must be at least 50% sure.
+                CONFIDENCE_THRESHOLD = 0.5
 
-                if max_score >= CONFIDENCE_THRESHOLD:
-                    prediction_index = scores.argmax()
+                if max_proba >= CONFIDENCE_THRESHOLD:
+                    prediction_index = probabilities.argmax()
                     prediction = class_names[prediction_index]
                     st.success(f"**Category:** {prediction}")
-                    st.info(f"**Confidence Score:** {max_score:.2f}")
+                    # --- CHANGE: Display the confidence as a percentage ---
+                    st.info(f"**Confidence:** {max_proba:.0%}")
                 else:
                     st.warning("**Category:** Unclassified")
+                    st.info(f"Top category was '{class_names[probabilities.argmax()]}' but confidence was too low ({max_proba:.0%}).")
+
 
             # --- Column 2: Entity Extraction (NER) ---
             with col2:
                 st.markdown("#### 2. Extracted Information")
-                # Run the NER model on the user input
                 doc = ner_model(user_input)
                 
                 if doc.ents:
-                    # Use Displacy to render the entities
                     html = displacy.render(doc, style="ent", jupyter=False)
                     st.markdown(html, unsafe_allow_html=True)
-                    
                     st.markdown("##### Detected Entities:")
-                    # Display entities in a more structured way
-                    entity_data = [
-                        {"Entity": ent.text, "Type": ent.label_}
-                        for ent in doc.ents
-                    ]
+                    entity_data = [{"Entity": ent.text, "Type": ent.label_} for ent in doc.ents]
                     st.table(entity_data)
-
                 else:
                     st.info("No specific entities (like software or hardware) were detected.")
 
@@ -128,13 +116,11 @@ st.sidebar.markdown(
     - It is trained to find and label specific keywords in the text.
     """
 )
-
 if class_names is not None:
     st.sidebar.header("Known Categories")
     class_list_markdown = "\n".join([f"- {c}" for c in sorted(class_names)])
     st.sidebar.markdown(class_list_markdown)
-
 if ner_model is not None:
     st.sidebar.header("Known Entities")
     entity_list_markdown = "\n".join([f"- {label}" for label in sorted(ner_model.get_pipe('ner').labels)])
-    st.sidebar.markdown(entity_list_markdown)   
+    st.sidebar.markdown(entity_list_markdown)

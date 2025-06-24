@@ -21,7 +21,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report, ConfusionMatrixDisplay
 
 # --- Configuration ---
-DATA_FILE_PATH = 'data/master_training_data.csv'
+DATA_FILE_PATH = 'data/IT_tickets.csv'
 MODEL_DIR = 'models'
 DOCUMENT_COL = 'Document'
 TOPIC_COL = 'Topic_group'
