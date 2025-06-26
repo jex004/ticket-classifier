@@ -17,6 +17,9 @@
     "mode":"default"
   },
   "labels":{
+    "entity_ruler":[
+
+    ],
     "ner":[
       "HARDWARE",
       "REQUEST_TYPE",
@@ -24,9 +27,11 @@
     ]
   },
   "pipeline":[
+    "entity_ruler",
     "ner"
   ],
   "components":[
+    "entity_ruler",
     "ner"
   ],
   "disabled":[

@@ -1,4 +1,4 @@
-# app.py (Deep Learning + NER + Proba Score Version)
+# app.py (Final Version with 'Miscellaneous' handling)
 
 import streamlit as st
 import joblib
@@ -7,51 +7,54 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import spacy
 from spacy import displacy
+from sklearn.metrics.pairwise import cosine_similarity
 
 # --- Page Configuration ---
-st.set_page_config(
-    page_title="Smart Ticket Assistant",
-    page_icon="💡",
-    layout="wide"
-)
+st.set_page_config(page_title="Smart Ticket Assistant", page_icon="💡", layout="wide")
 
-# --- Model Loading ---
+# --- Model & DB Loading ---
 MODEL_DIR = 'models'
+DB_DIR = 'embedding_db'
 CLASSIFIER_PATH = os.path.join(MODEL_DIR, 'ticket_classifier_deep.joblib')
 NER_MODEL_PATH = os.path.join(MODEL_DIR, 'ner_model')
+EMBEDDINGS_DB_PATH = os.path.join(DB_DIR, 'all_embeddings.npy')
+DOCUMENTS_DB_PATH = os.path.join(DB_DIR, 'all_documents.npy')
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
 
 @st.cache_resource
-def load_models():
-    if not all([os.path.exists(p) for p in [CLASSIFIER_PATH, NER_MODEL_PATH]]):
-        return None, None, None, None
-
+def load_all():
+    paths_to_check = [CLASSIFIER_PATH, NER_MODEL_PATH, EMBEDDINGS_DB_PATH, DOCUMENTS_DB_PATH]
+    if not all([os.path.exists(p) for p in paths_to_check]):
+        return None, None, None, None, None, None
     embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     classifier_model = joblib.load(CLASSIFIER_PATH)
     ner_model = spacy.load(NER_MODEL_PATH)
     class_names = classifier_model.classes_
-    
-    return embedding_model, classifier_model, ner_model, class_names
+    db_embeddings = np.load(EMBEDDINGS_DB_PATH, allow_pickle=True)
+    db_documents = np.load(DOCUMENTS_DB_PATH, allow_pickle=True)
+    return embedding_model, classifier_model, ner_model, class_names, db_embeddings, db_documents
 
-embedding_model, classifier, ner_model, class_names = load_models()
+(embedding_model, classifier, ner_model, class_names, 
+ db_embeddings, db_documents) = load_all()
 
 # --- UI ---
 st.title("💡 Smart Ticket Assistant")
-st.markdown(
-    "This tool uses two AI models: one to **classify the ticket category** and another to **extract key entities**."
-)
+st.markdown("This tool uses AI to classify tickets, extract key details, and help identify new categories for unknown issues.")
 
 if embedding_model is None:
     st.error(
-        "**Models not found!** Please run the training scripts first.\n\n"
-        "1. Run: `python train_and_evaluate.py`\n"
-        "2. Run: `python train_ner.py`"
+        "**Models or Database not found!** Please run all setup scripts first.\n\n"
+        "1. `python refine_labels.py` (if you haven't)\n"
+        "2. `python create_embedding_db.py`\n"
+        "3. `python prepare_final_data.py`\n"
+        "4. `python train_and_evaluate.py`\n"
+        "5. `python train_ner.py`"
     )
 else:
     user_input = st.text_area(
         "Enter ticket description here:", 
         height=150, 
-        placeholder="e.g., 'My Outlook is crashing and I need a password reset for SAP on my Dell laptop.'"
+        placeholder="e.g., 'My Outlook is crashing and I need a password reset...'"
     )
     
     if st.button("Analyze Ticket"):
@@ -60,50 +63,51 @@ else:
         else:
             st.markdown("---")
             st.subheader("Analysis Results")
-            col1, col2 = st.columns(2)
+            
+            # --- The New, Simpler, and More Powerful Workflow ---
+            input_embedding = embedding_model.encode([user_input])
+            prediction = classifier.predict(input_embedding)[0]
+            
+            # --- Check if the prediction is 'Miscellaneous' ---
+            if prediction == 'Miscellaneous':
+                st.warning("#### Category: Unknown / Miscellaneous")
+                st.info("This ticket does not match a known IT category. Analyzing for emerging patterns...")
+                
+                # Find and display similar tickets to suggest a new category
+                st.markdown("##### Potential Emerging Topic: Found Similar Historical Tickets")
+                similarities = cosine_similarity(input_embedding, db_embeddings)[0]
+                top_5_indices = np.argsort(similarities)[-6:-1][::-1]
+                
+                for i, index in enumerate(top_5_indices):
+                    st.write(f"**Similar Ticket #{i+1} (Similarity: {similarities[index]:.2f}):**")
+                    with st.expander("View Ticket"):
+                        st.write(db_documents[index])
+                st.write("---")
+                st.write("An administrator can review these tickets to identify a new category.")
 
-            # --- Column 1: Classification with Probability ---
-            with col1:
-                st.markdown("#### 1. Ticket Category")
-                input_embedding = embedding_model.encode([user_input])
-                
-                # --- CHANGE: Use predict_proba instead of decision_function ---
-                # This returns a list of probabilities for each class, e.g., [[0.1, 0.8, 0.1]]
-                probabilities = classifier.predict_proba(input_embedding)[0]
-                
-                # Find the highest probability
-                max_proba = probabilities.max()
-                
-                # --- CHANGE: Adjust the threshold to work with probabilities (0.0 to 1.0) ---
-                # A threshold of 0.5 means the model must be at least 50% sure.
-                CONFIDENCE_THRESHOLD = 0.5
-
-                if max_proba >= CONFIDENCE_THRESHOLD:
-                    prediction_index = probabilities.argmax()
-                    prediction = class_names[prediction_index]
+            else:
+                # --- This is a known category, proceed as normal ---
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("#### 1. Ticket Category")
                     st.success(f"**Category:** {prediction}")
-                    # --- CHANGE: Display the confidence as a percentage ---
+                    # You can still show probabilities if you want, for context
+                    probabilities = classifier.predict_proba(input_embedding)[0]
+                    max_proba = probabilities.max()
                     st.info(f"**Confidence:** {max_proba:.0%}")
-                else:
-                    st.warning("**Category:** Unclassified")
-                    st.info(f"Top category was '{class_names[probabilities.argmax()]}' but confidence was too low ({max_proba:.0%}).")
-
-
-            # --- Column 2: Entity Extraction (NER) ---
-            with col2:
-                st.markdown("#### 2. Extracted Information")
-                doc = ner_model(user_input)
                 
-                if doc.ents:
-                    html = displacy.render(doc, style="ent", jupyter=False)
-                    st.markdown(html, unsafe_allow_html=True)
-                    st.markdown("##### Detected Entities:")
-                    entity_data = [{"Entity": ent.text, "Type": ent.label_} for ent in doc.ents]
-                    st.table(entity_data)
-                else:
-                    st.info("No specific entities (like software or hardware) were detected.")
+                with col2:
+                    st.markdown("#### 2. Extracted Information")
+                    doc = ner_model(user_input)
+                    if doc.ents:
+                        colors = {"SOFTWARE": "#f7a600", "HARDWARE": "#66c2a5", "REQUEST_TYPE": "#8da0cb"}
+                        options = {"ents": ["SOFTWARE", "HARDWARE", "REQUEST_TYPE"], "colors": colors}
+                        html = displacy.render(doc, style="ent", options=options, jupyter=False)
+                        st.markdown(html, unsafe_allow_html=True)
+                    else:
+                        st.info("No specific entities were detected.")
 
-# --- Sidebar ---
+# --- Sidebar --- remains the same
 st.sidebar.header("About the Models")
 st.sidebar.markdown(
     """
@@ -112,7 +116,7 @@ st.sidebar.markdown(
     - It predicts the overall ticket category.
 
     **Entity Recognizer:**
-    - A custom `spaCy` model.
+    - A hybrid `spaCy` model using rules and a statistical model.
     - It is trained to find and label specific keywords in the text.
     """
 )
