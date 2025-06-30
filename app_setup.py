@@ -1,4 +1,4 @@
-# app_setup.py (Corrected Version)
+# app_setup.py
 
 """
 One-time setup script to train an OPTIMIZED model and prepare artifacts.

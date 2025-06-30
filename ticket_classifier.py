@@ -1,41 +1,5 @@
 # ticket_classifier.py
 
-"""
-IT Service Ticket Classifier and Clustering Tool
-
-This script provides a complete workflow for training a ticket classification model
-and using it to predict categories for new tickets. It includes a mechanism to
-identify out-of-distribution ("Unknown") tickets and cluster them to find new patterns.
-
-The script operates in two modes:
-1. train: Trains a model on a labeled CSV file and saves the model.
-   - It expects a CSV with at least a 'Document' and 'Topic_group' column.
-   - The model is trained on all topics EXCEPT for a specified 'miscellaneous' label.
-   - The trained pipeline (TF-IDF vectorizer + SGD Classifier) is saved to a file.
-
-2. predict: Loads a pre-trained model and predicts categories for a new (unlabeled) CSV file.
-   - It applies the model and a confidence threshold to classify tickets.
-   - Tickets below the threshold are marked as 'Unknown'.
-   - 'Unknown' tickets are then clustered using KMeans to identify potential new categories.
-   - The final output is a new CSV file containing the original data plus prediction and cluster information.
-
-------------------------------------------------------------------------------------------
-HOW TO USE:
-
-1. Train a new model:
-   python ticket_classifier.py train \
-       --data-path "data/all_tickets_processed_improved_v3.csv" \
-       --model-path "ticket_classifier.joblib"
-
-2. Predict on a new dataset:
-   python ticket_classifier.py predict \
-       --data-path "data/new_unlabeled_tickets.csv" \
-       --model-path "ticket_classifier.joblib" \
-       --output-path "data/predictions_with_clusters.csv" \
-       --threshold 0.5
-------------------------------------------------------------------------------------------
-"""
-
 import argparse
 import os
 import re
